@@ -1,0 +1,14 @@
+{
+    "certificate_expiry": {
+        "version": "1.0.1",
+        "local_location": "/custom_components/certificate_expiry/__init__.py",
+        "remote_location": "https://raw.githubusercontent.com/elad-bar/ha-certificate-expiry/master/custom_components/certificate_expiry/__init__.py",
+        "visit_repo": "https://github.com/elad-bar/ha-certificate-expiry",
+        "changelog": "https://github.com/elad-bar/ha-certificate-expiry/releases/latest",
+        "resources": [
+            "https://raw.githubusercontent.com/elad-bar/ha-certificate-expiry/master/custom_components/certificate_expiry/const.py",
+            "https://raw.githubusercontent.com/elad-bar/ha-certificate-expiry/master/custom_components/certificate_expiry/sensor.py",
+            "https://raw.githubusercontent.com/elad-bar/ha-certificate-expiry/master/custom_components/certificate_expiry/manifest.json"
+        ]
+    }
+}

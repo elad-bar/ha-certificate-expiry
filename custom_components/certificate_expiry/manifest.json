@@ -1,0 +1,8 @@
+{
+    "domain": "certificate_expiry",
+    "name": "Certificate Expiry Check",
+    "documentation": "https://github.com/elad-bar/ha-certificate-expiry/blob/master/README.md",
+    "dependencies": [],
+    "codeowners": ["@elad-bar"],
+    "requirements": ["pyOpenSSL"]
+  }
