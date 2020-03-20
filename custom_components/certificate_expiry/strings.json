@@ -1,0 +1,18 @@
+{
+  "config": {
+    "title": "Certificate Expiry",
+    "step": {
+      "user": {
+        "title": "Set up Certificate Expiry",
+        "description": "Set up your certificate path to monitor",
+        "data": {
+          "name": "Name",
+          "cert_file": "Path"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Certificate Expiry integration ({name}) already configured"
+    }
+  }
+}

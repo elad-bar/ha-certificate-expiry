@@ -1,89 +1,151 @@
 """
-Counter for the days until an HTTPS (TLS) certificate will expire.
-For more details about this sensor please refer to the documentation at
-https://home-assistant.io/components/sensor.cert_expiry/
+Support for SSL Certificate Expiry Sensor.
+For more details about this platform, please refer to the documentation at
+https://home-assistant.io/components/CertificateExpiry/
 """
+import sys
 import logging
-from datetime import timedelta
-from datetime import datetime
-from OpenSSL import crypto as c
+from typing import Optional, Union
 
-import voluptuous as vol
+from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-import homeassistant.helpers.config_validation as cv
-from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import (CONF_NAME)
 from homeassistant.helpers.entity import Entity
 
 from .const import *
 
-REQUIREMENTS = ['pyOpenSSL']
-
 _LOGGER = logging.getLogger(__name__)
 
-SCAN_INTERVAL = timedelta(hours=12)
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_CERT_FILE): cv.string,
-    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string
-})
+CURRENT_DOMAIN = DOMAIN_SENSOR
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Set up certificate expiry sensor."""
-    sensor_name = config.get(CONF_NAME)
-    certificate_path = config.get(CONF_CERT_FILE)
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Set up CertificateExpiry based off an entry."""
+    _LOGGER.debug(f"Starting async_setup_entry {CURRENT_DOMAIN}")
 
-    ssl_entity = SSLCertificateExpiry(sensor_name, certificate_path)
+    try:
+        entry_data = entry.data
+        name = entry_data.get(CONF_NAME)
+        entities = []
 
-    add_entities([ssl_entity], True)
+        ha = _get_ha(hass, name)
+        entity_manager = ha.entity_manager
+
+        if entity_manager is not None:
+            entities_data = entity_manager.get_entities(CURRENT_DOMAIN)
+            for entity_name in entities_data:
+                entity = entities_data[entity_name]
+
+                entity = SSLCertificateExpirySensor(hass, ha, entity)
+
+                _LOGGER.debug(f"Setup {CURRENT_DOMAIN}: {entity.name} | {entity.unique_id}")
+
+                entities.append(entity)
+
+                entity_manager.set_entry_loaded_state(CURRENT_DOMAIN, True)
+
+        async_add_entities(entities, True)
+    except Exception as ex:
+        exc_type, exc_obj, tb = sys.exc_info()
+        line_number = tb.tb_lineno
+
+        _LOGGER.error(f"Failed to load {CURRENT_DOMAIN}, error: {ex}, line: {line_number}")
 
 
-class SSLCertificateExpiry(Entity):
-    """Implementation of the certificate expiry sensor."""
+async def async_unload_entry(hass, config_entry):
+    _LOGGER.info(f"async_unload_entry {CURRENT_DOMAIN}: {config_entry}")
 
-    def __init__(self, sensor_name, certificate_path):
-        """Initialize the sensor."""
-        self._certificate_path = certificate_path
-        self._name = sensor_name
-        self._state = None
+    entry_data = config_entry.data
+    name = entry_data.get(CONF_NAME)
+
+    ha = _get_ha(hass, name)
+    entity_manager = ha.entity_manager
+
+    if entity_manager is not None:
+        entity_manager.set_entry_loaded_state(CURRENT_DOMAIN, False)
+
+    return True
+
+
+class SSLCertificateExpirySensor(Entity):
+    """Representation a binary sensor that is updated by SSLCertificateExpirySensor."""
+
+    def __init__(self, hass, ha, entity):
+        """Initialize the SSLCertificateExpirySensor."""
+        self._hass = hass
+        self._entity = entity
+        self._remove_dispatcher = None
+        self._ha = ha
+        self._entity_manager = ha.entity_manager
+        self._device_manager = ha.device_manager
+
+    @property
+    def unique_id(self) -> Optional[str]:
+        """Return the name of the node."""
+        return f"{DEFAULT_NAME}-{CURRENT_DOMAIN}-{self.name}"
+
+    @property
+    def device_info(self):
+        device_name = self._entity.get(ENTITY_NAME)
+
+        return self._device_manager.get(device_name)
+
+    @property
+    def should_poll(self):
+        """Return the polling state."""
+        return False
 
     @property
     def name(self):
         """Return the name of the sensor."""
-        return self._name
+        return self._entity.get(ENTITY_NAME)
 
     @property
-    def unit_of_measurement(self):
-        """Return the unit this state is expressed in."""
-        return 'days'
+    def icon(self) -> Optional[str]:
+        """Return the icon of the sensor."""
+        return self._entity.get(ENTITY_ICON)
 
     @property
-    def state(self):
+    def state(self) -> Union[None, str, int, float]:
         """Return the state of the sensor."""
-        return self._state
+        return self._entity.get(ENTITY_STATE)
 
     @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return 'mdi:certificate'
+    def device_state_attributes(self):
+        """Return true if the sensor is on."""
+        return self._entity.get(ENTITY_ATTRIBUTES, {})
 
-    def update(self):
-        """Fetch the certificate information."""
-        try:
+    async def async_added_to_hass(self):
+        """Register callbacks."""
+        self._remove_dispatcher = async_dispatcher_connect(self._hass, SIGNALS[CURRENT_DOMAIN], self.update_data)
 
-            with open(self._certificate_path, "rb") as certificate_file:
-                certificate_content = certificate_file.read()
+    async def async_will_remove_from_hass(self) -> None:
+        if self._remove_dispatcher is not None:
+            self._remove_dispatcher()
 
-            if certificate_content is not None:
-                cert = c.load_certificate(c.FILETYPE_PEM, certificate_content)
-                not_after = cert.get_notAfter().decode("utf-8")
+    @callback
+    def update_data(self):
+        self.hass.async_add_job(self.async_update_data)
 
-                timestamp = datetime.strptime(not_after, "%Y%m%d%H%M%SZ")
+    async def async_update_data(self):
+        if self._entity_manager is None:
+            _LOGGER.debug(f"Cannot update {CURRENT_DOMAIN} - Entity Manager is None | {self.name}")
+        else:
+            self._entity = self._entity_manager.get_entity(CURRENT_DOMAIN, self.name)
 
-                expiry = timestamp - datetime.today()
-                self._state = expiry.days
+            if self._entity is None:
+                _LOGGER.debug(f"Cannot update {CURRENT_DOMAIN} - Entity was not found | {self.name}")
 
-        except Exception as ex:
-            _LOGGER.error(f'Failed to parse certificate: {self._certificate_path}, Error: {str(ex)}')
-            return
+                self._entity = {}
+                await self.async_remove()
+            else:
+                _LOGGER.debug(f"Update {CURRENT_DOMAIN} -> {self.name}")
+
+                self.async_schedule_update_ha_state(True)
+
+
+def _get_ha(hass, host):
+    ha_data = hass.data.get(DOMAIN_DATA, {})
+    ha = ha_data.get(host)
+
+    return ha
